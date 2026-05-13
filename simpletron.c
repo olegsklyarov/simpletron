@@ -15,17 +15,12 @@ struct SIMULATOR
     char operand;
 };
 
-char sign(int value)
-{
-    return value < 0 ? '-' : '+';
-}
-
 void dump(struct SIMULATOR s)
 {
     printf("REGISTERS:\n");
-    printf("accumulator           %c%04d\n", sign(s.accumulator), abs(s.accumulator));
+    printf("accumulator           %+05d\n", s.accumulator);
     printf("instructionConter        %02d\n", s.instructionCounter);
-    printf("instructionRegister   %c%04d\n", sign(s.instructionRegister), abs(s.instructionRegister));
+    printf("instructionRegister   %+05d\n", s.instructionRegister);
     printf("operationCode            %02d\n", s.operationCode);
     printf("operand                  %02d\n", s.operand);
 
@@ -42,10 +37,7 @@ void dump(struct SIMULATOR s)
     {
         printf("%2d", y);
         for (int x = 0; x < 10; x++)
-        {
-            int m = s.memory[y + x];
-            printf("%2c%04d", sign(m), abs(m));
-        }
+            printf(" %+05d", s.memory[y + x]);
         printf("\n");
     }
 }
