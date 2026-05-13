@@ -42,6 +42,19 @@ void dump(struct SIMULATOR s)
     }
 }
 
+const int OPERATION_READ = 10;
+const int OPERATION_WRITE = 11;
+const int OPERATION_LOAD = 20;
+const int OPERATION_STORE = 21;
+const int OPERATOIN_ADD = 30;
+const int OPERATION_SUBTRACT = 31;
+const int OPERATION_DIVIDE = 32;
+const int OPERATION_MULTIPLY = 33;
+const int OPERATION_BRANCH = 40;
+const int OPERATION_BRANCH_NEG = 41;
+const int OPERATION_BRANCH_ZERO = 42;
+const int OPERATION_HALT = 43;
+
 const int ERROR_INPUT_STDIN = -100000;
 const int ERROR_INPUT_OUT_OF_RANGE = -100001;
 const int ERROR_INPUT_NO_DATA = -100002;
@@ -90,13 +103,15 @@ int word_input()
 
 int main()
 {
-    printf("*** Welcome to Simpletron! ***\n\n");
+    printf("*** Welcome to Simpletron! ***\n");
+    printf("\n");
     printf("*** Please enter your program one instruction ***\n");
     printf("*** (or data word) at a time. I will type the ***\n");
-    printf("*** location number and a question mark (?). ***\n");
+    printf("*** location number and a question mark (?).  ***\n");
     printf("*** You then type the word for that location. ***\n");
     printf("*** Type the sentinel -99999 to stpo entering ***\n");
-    printf("*** your program. ***\n\n");
+    printf("*** your program. ***\n");
+    printf("\n");
 
     struct SIMULATOR s = {};
 
@@ -119,7 +134,27 @@ int main()
         s.memory[inputCounter++] = word;
     }
 
-    dump(s);
+    printf("\n");
+    printf("*** Program loading completed ***\n");
+    printf("*** Program execution begins  ***\n");
+    printf("\n");
+
+    // dump(s);
+
+    for (;;)
+    {
+        s.instructionRegister = s.memory[s.instructionCounter];
+        s.operationCode = s.instructionRegister / 100;
+        s.operand = s.instructionRegister % 100;
+
+        if (s.operationCode == OPERATION_HALT)
+        {
+            printf("*** Simpletron execution terminated ***\n");
+            break;
+        }
+
+        s.instructionCounter++;
+    }
 
     return 0;
 }
