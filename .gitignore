@@ -1,3 +1,4 @@
 /simpletron
 *.run
 *.run.err
+__pycache__/
