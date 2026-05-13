@@ -91,7 +91,7 @@ printf '2\n3\n' | ./simpletron add.sml
 
 ## Тестовый фреймворк
 
-Тесты — это файлы `*.stest` под каталогом `tests/` (любая вложенность). Каждый файл **полностью описывает один кейс**: SML-программа, ввод и ожидаемый результат. Идея формата — как у [phpt](https://php.github.io/php-src/miscellaneous/writing-tests.html): секции с построчным разбором. Раннер — [`run_tests.py`](./run_tests.py), запускается через `make test`.
+Тесты — это файлы `*.stest` под каталогом `tests/` (раннер ищет их **рекурсивно**). Сейчас все кейсы лежат **прямо в `tests/`** и именуются с префиксом темы, например `add-01.stest`, `divide-03.stest`. При необходимости можно снова группировать файлы по подкаталогам (`tests/my-suite/case.stest`) — формат и раннер те же. Каждый `.stest` **полностью описывает один кейс**: программа, ввод и ожидания. Идея секций — как у [phpt](https://php.github.io/php-src/miscellaneous/writing-tests.html). Раннер — [`run_tests.py`](./run_tests.py), запускается через `make test`.
 
 Секция начинается строкой `--имя--` (имя из строчных латинских букв и цифр, дефисы допускаются). Тело секции — всё до следующей строки `--...--` или до конца файла. Файл в UTF-8; ожидаемый stdout/stderr сравниваются с выводом процесса **побайтово**.
 
@@ -126,8 +126,8 @@ printf '2\n3\n' | ./simpletron add.sml
 
 ### Создание нового теста
 
-1. Создайте каталог, например `tests/my-feature/`.
-2. Добавьте `tests/my-feature/01.stest` с секциями `--program--`, `--stdin--`, `--expect-stdout--` и при необходимости `--expect-stderr--`, `--expect-exit--`.
+1. Добавьте файл в `tests/`, например `tests/my-feature-01.stest` (префикс по смыслу + номер), или при желании положите его в подкаталог: `tests/my-feature/01.stest`.
+2. В файле задайте секции `--program--`, `--stdin--`, `--expect-stdout--` и при необходимости `--expect-stderr--`, `--expect-exit--`.
 3. Для бесконечного цикла укажите секцию `--expect-timeout--` вместо проверки вывода.
 4. Прогоните `make test`. Подробный вывод провалов: `python3 run_tests.py -v`.
 
@@ -148,15 +148,7 @@ python3 run_tests.py --tests-dir tests --simpletron ./simpletron
 ├── simpletron.c         # симулятор
 ├── Makefile             # сборка (-Wall -Wextra -Wpedantic -std=c11 -O2)
 ├── run_tests.py         # тестовый раннер
-├── tests/               # тестовые наборы
-│   ├── add/             # сложение двух чисел
-│   ├── subtract/        # вычитание
-│   ├── multiply/        # умножение
-│   ├── divide/          # деление, включая деление на ноль
-│   ├── max/             # максимум из двух (BRANCH_NEG)
-│   ├── overflow-wrap/   # переполнение аккумулятора кольцом
-│   ├── infinite-loop/   # бесконечный цикл (expect_timeout)
-│   └── negative-too-many-words/  # >100 слов в программе
+├── tests/               # *.stest (сейчас плоский список: add-01, divide-03, …)
 └── .github/workflows/ci.yml      # build + test в CI
 ```
 
