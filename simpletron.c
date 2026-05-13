@@ -1,209 +1,316 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <errno.h>
 #include <limits.h>
 
-struct SIMPLETRON
-{
-    int memory[100];
+#define MEMORY_SIZE 100
+#define WORD_MIN (-9999)
+#define WORD_MAX 9999
+#define WORD_SPAN ((WORD_MAX) - (WORD_MIN) + 1)
+#define PROGRAM_END_SENTINEL (-99999)
 
-    // REGISTERS
+#define OPERATION_READ 10
+#define OPERATION_WRITE 11
+#define OPERATION_LOAD 20
+#define OPERATION_STORE 21
+#define OPERATION_ADD 30
+#define OPERATION_SUBTRACT 31
+#define OPERATION_DIVIDE 32
+#define OPERATION_MULTIPLY 33
+#define OPERATION_BRANCH 40
+#define OPERATION_BRANCH_NEG 41
+#define OPERATION_BRANCH_ZERO 42
+#define OPERATION_HALT 43
+
+typedef struct simpletron
+{
+    int memory[MEMORY_SIZE];
     int accumulator;
-    int instructionCounter;  // aka IP - instruction pointer
-    int instructionRegister; // copy of the currently executed instruction
-    char operationCode;
-    char operand;
-};
+    int instructionCounter;
+    int instructionRegister;
+} simpletron_t;
 
-void dump(struct SIMPLETRON s)
+typedef enum word_input_status
 {
-    printf("REGISTERS:\n");
-    printf("accumulator           %+05d\n", s.accumulator);
-    printf("instructionConter        %02d\n", s.instructionCounter);
-    printf("instructionRegister   %+05d\n", s.instructionRegister);
-    printf("operationCode            %02d\n", s.operationCode);
-    printf("operand                  %02d\n", s.operand);
+    WORD_INPUT_OK,
+    WORD_INPUT_ERR_STDIN,
+    WORD_INPUT_ERR_OUT_OF_RANGE,
+    WORD_INPUT_ERR_NO_DATA,
+    WORD_INPUT_ERR_TRAILING_DATA,
+    WORD_INPUT_ERR_LINE_TOO_LONG,
+} word_input_status_t;
 
-    printf("\n");
+typedef struct word_input_result
+{
+    word_input_status_t status;
+    int value;
+} word_input_result_t;
 
-    printf("MEMORY:\n");
-
-    printf("  ");
-    for (int i = 0; i < 10; i++)
-        printf("%6d", i);
-    printf("\n");
-
-    for (int y = 0; y < 100; y += 10)
+static const char *path_basename(const char *path)
+{
+    const char *slash = strrchr(path, '/');
+    const char *bs = strrchr(path, '\\');
+    const char *p = NULL;
+    if (slash && bs)
     {
-        printf("%2d", y);
+        p = slash > bs ? slash : bs;
+    }
+    else if (slash)
+    {
+        p = slash;
+    }
+    else if (bs)
+    {
+        p = bs;
+    }
+    return p ? p + 1 : path;
+}
+
+static int wrap_accumulator_wide(long long acc)
+{
+    long long span = WORD_SPAN;
+    long long x = acc;
+    x = (x - WORD_MIN) % span;
+    if (x < 0)
+    {
+        x += span;
+    }
+    return (int)(x + WORD_MIN);
+}
+
+static void dump(const simpletron_t *s)
+{
+    fprintf(stderr, "REGISTERS:\n");
+    fprintf(stderr, "accumulator           %+05d\n", s->accumulator);
+    fprintf(stderr, "instructionCounter       %02d\n", s->instructionCounter);
+    fprintf(stderr, "instructionRegister   %+05d\n", s->instructionRegister);
+
+    fprintf(stderr, "\n");
+
+    fprintf(stderr, "MEMORY:\n");
+
+    fprintf(stderr, "  ");
+    for (int i = 0; i < 10; i++)
+    {
+        fprintf(stderr, "%6d", i);
+    }
+    fprintf(stderr, "\n");
+
+    for (int y = 0; y < MEMORY_SIZE; y += 10)
+    {
+        fprintf(stderr, "%2d", y);
         for (int x = 0; x < 10; x++)
-            printf(" %+05d", s.memory[y + x]);
-        printf("\n");
+        {
+            fprintf(stderr, " %+05d", s->memory[y + x]);
+        }
+        fprintf(stderr, "\n");
     }
 }
 
-const int OPERATION_READ = 10;
-const int OPERATION_WRITE = 11;
-const int OPERATION_LOAD = 20;
-const int OPERATION_STORE = 21;
-const int OPERATOIN_ADD = 30;
-const int OPERATION_SUBTRACT = 31;
-const int OPERATION_DIVIDE = 32;
-const int OPERATION_MULTIPLY = 33;
-const int OPERATION_BRANCH = 40;
-const int OPERATION_BRANCH_NEG = 41;
-const int OPERATION_BRANCH_ZERO = 42;
-const int OPERATION_HALT = 43;
-
-const int ERROR_INPUT_STDIN = -100000;
-const int ERROR_INPUT_OUT_OF_RANGE = -100001;
-const int ERROR_INPUT_NO_DATA = -100002;
-const int ERROR_INPUT_TRAILING_DATA = -100003;
-
-int is_error_word(int word)
+static word_input_result_t word_input(FILE *f)
 {
-    return word <= ERROR_INPUT_STDIN;
-}
-
-int word_input(FILE *f)
-{
-    char buffer[10];
+    enum
+    {
+        BUF_SIZE = 256
+    };
+    char buffer[BUF_SIZE];
 
     if (fgets(buffer, sizeof(buffer), f) == NULL)
     {
-        printf("\nword input failed");
-        return ERROR_INPUT_STDIN;
+        fprintf(stderr, "word input failed\n");
+        word_input_result_t r = {WORD_INPUT_ERR_STDIN, 0};
+        return r;
+    }
+
+    if (strchr(buffer, '\n') == NULL && !feof(f))
+    {
+        int c;
+        while ((c = fgetc(f)) != '\n' && c != EOF)
+        {
+        }
+        word_input_result_t r = {WORD_INPUT_ERR_LINE_TOO_LONG, 0};
+        return r;
     }
 
     char *endptr;
     errno = 0;
     long value = strtol(buffer, &endptr, 10);
-    if ((errno == ERANGE && (value == LONG_MAX || value == LONG_MIN)))
+    if (errno == ERANGE && (value == LONG_MAX || value == LONG_MIN))
     {
-        return ERROR_INPUT_OUT_OF_RANGE;
+        word_input_result_t r = {WORD_INPUT_ERR_OUT_OF_RANGE, 0};
+        return r;
     }
 
     if (endptr == buffer)
     {
-        return ERROR_INPUT_NO_DATA;
+        word_input_result_t r = {WORD_INPUT_ERR_NO_DATA, 0};
+        return r;
     }
 
+    while (*endptr == ' ' || *endptr == '\t')
+    {
+        endptr++;
+    }
+    if (*endptr == '\r')
+    {
+        endptr++;
+    }
     if (*endptr != '\n' && *endptr != '\0')
     {
-        return ERROR_INPUT_TRAILING_DATA;
+        word_input_result_t r = {WORD_INPUT_ERR_TRAILING_DATA, 0};
+        return r;
     }
 
-    if (value == -99999 || (-9999 <= value && value <= 9999))
+    if (value == PROGRAM_END_SENTINEL || (WORD_MIN <= value && value <= WORD_MAX))
     {
-        return value;
+        word_input_result_t r = {WORD_INPUT_OK, (int)value};
+        return r;
     }
 
-    return ERROR_INPUT_OUT_OF_RANGE;
+    word_input_result_t r = {WORD_INPUT_ERR_OUT_OF_RANGE, 0};
+    return r;
 }
 
-int run(struct SIMPLETRON s)
+static int run(simpletron_t *s)
 {
-    for (; s.instructionCounter < 100; s.instructionCounter++)
+    for (; s->instructionCounter < MEMORY_SIZE; s->instructionCounter++)
     {
-        s.instructionRegister = s.memory[s.instructionCounter];
-        s.operationCode = s.instructionRegister / 100;
-        s.operand = s.instructionRegister % 100;
+        s->instructionRegister = s->memory[s->instructionCounter];
+        int operationCode = s->instructionRegister / 100;
+        int operand = s->instructionRegister % 100;
 
-        if (s.operationCode == OPERATION_READ)
+        if (operationCode == OPERATION_READ)
         {
-            int word = word_input(stdin);
-            if (is_error_word(word))
+            word_input_result_t wr = word_input(stdin);
+            if (wr.status != WORD_INPUT_OK)
             {
-                printf("[%d] Error reading word, error code: %d\n", s.instructionCounter, word);
-                return -1;
+                fprintf(stderr, "[%d] Error reading word, status: %d\n",
+                        s->instructionCounter, (int)wr.status);
+                dump(s);
+                return EXIT_FAILURE;
             }
-            s.memory[s.operand] = word;
+            s->memory[operand] = wr.value;
         }
-        else if (s.operationCode == OPERATION_WRITE)
+        else if (operationCode == OPERATION_WRITE)
         {
-            printf("%d\n", s.memory[s.operand]);
+            printf("%d\n", s->memory[operand]);
         }
-        else if (s.operationCode == OPERATION_LOAD)
+        else if (operationCode == OPERATION_LOAD)
         {
-            s.accumulator = s.memory[s.operand];
+            s->accumulator = s->memory[operand];
         }
-        else if (s.operationCode == OPERATION_STORE)
+        else if (operationCode == OPERATION_STORE)
         {
-            s.memory[s.operand] = s.accumulator;
+            s->memory[operand] = s->accumulator;
         }
-        else if (s.operationCode == OPERATOIN_ADD)
+        else if (operationCode == OPERATION_ADD)
         {
-            s.accumulator += s.memory[s.operand];
+            long long sum = (long long)s->accumulator + (long long)s->memory[operand];
+            s->accumulator = wrap_accumulator_wide(sum);
         }
-        else if (s.operationCode == OPERATION_SUBTRACT)
+        else if (operationCode == OPERATION_SUBTRACT)
         {
-            s.accumulator -= s.memory[s.operand];
+            long long diff = (long long)s->accumulator - (long long)s->memory[operand];
+            s->accumulator = wrap_accumulator_wide(diff);
         }
-        else if (s.operationCode == OPERATION_DIVIDE)
+        else if (operationCode == OPERATION_DIVIDE)
         {
-            int divisor = s.memory[s.operand];
+            int divisor = s->memory[operand];
             if (divisor == 0)
             {
-                printf("Attempt to divide by zero\n");
-                return -1;
+                fprintf(stderr, "Attempt to divide by zero\n");
+                dump(s);
+                return EXIT_FAILURE;
             }
-            s.accumulator /= divisor;
+            s->accumulator /= divisor;
         }
-        else if (s.operationCode == OPERATION_MULTIPLY)
+        else if (operationCode == OPERATION_MULTIPLY)
         {
-            s.accumulator *= s.memory[s.operand];
+            long long prod = (long long)s->accumulator * (long long)s->memory[operand];
+            s->accumulator = wrap_accumulator_wide(prod);
         }
-        else if (s.operationCode == OPERATION_BRANCH_NEG)
+        else if (operationCode == OPERATION_BRANCH)
         {
-            if (s.accumulator < 0)
+            s->instructionCounter = operand - 1;
+        }
+        else if (operationCode == OPERATION_BRANCH_NEG)
+        {
+            if (s->accumulator < 0)
             {
-                s.instructionCounter = s.operand - 1; // for loop will increment by one
+                s->instructionCounter = operand - 1;
             }
         }
-        else if (s.operationCode == OPERATION_HALT)
+        else if (operationCode == OPERATION_BRANCH_ZERO)
         {
-            return 0;
+            if (s->accumulator == 0)
+            {
+                s->instructionCounter = operand - 1;
+            }
+        }
+        else if (operationCode == OPERATION_HALT)
+        {
+            return EXIT_SUCCESS;
         }
         else
         {
-            printf("[%d] Error: unknown operation code: %d\n", s.instructionCounter, s.operationCode);
-            return -1;
+            fprintf(stderr, "[%d] Error: unknown operation code: %d\n",
+                    s->instructionCounter, operationCode);
+            dump(s);
+            return EXIT_FAILURE;
         }
     }
-    return -1000;
+    fprintf(stderr, "Instruction counter out of range\n");
+    dump(s);
+    return EXIT_FAILURE;
 }
 
 int main(int argc, char **argv)
 {
     if (argc != 2)
     {
-        printf("Usage: ./simpletron src.txt\n");
-        return -1;
+        fprintf(stderr, "Usage: ./simpletron src.txt\n");
+        return EXIT_FAILURE;
     }
     FILE *f = fopen(argv[1], "r");
     if (f == NULL)
     {
-        printf("Failed to open file %s\n", argv[1]);
-        return -1;
+        fprintf(stderr, "Failed to open file %s\n", argv[1]);
+        return EXIT_FAILURE;
     }
-    struct SIMPLETRON s = {};
 
-    // Load SML program into the memory
-    for (int word = 0, counter = 0;; counter++)
+    simpletron_t s = {0};
+    int load_ok = 1;
+
+    for (int counter = 0;; counter++)
     {
-        word = word_input(f);
-        if (is_error_word(word))
+        word_input_result_t wr = word_input(f);
+        if (wr.status != WORD_INPUT_OK)
         {
-            printf("invalid word, error code: %d\n", word);
+            fprintf(stderr, "invalid word, status: %d\n", (int)wr.status);
+            load_ok = 0;
             break;
         }
-        if (word == -99999)
+        if (wr.value == PROGRAM_END_SENTINEL)
         {
             break;
         }
-        s.memory[counter] = word;
+        if (counter >= MEMORY_SIZE)
+        {
+            fprintf(stderr, "Too many words in %s\n", path_basename(argv[1]));
+            load_ok = 0;
+            break;
+        }
+        s.memory[counter] = wr.value;
     }
 
     fclose(f);
-    return run(s);
+
+    if (!load_ok)
+    {
+        dump(&s);
+        return EXIT_FAILURE;
+    }
+
+    return run(&s);
 }
