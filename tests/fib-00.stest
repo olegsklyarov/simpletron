@@ -29,3 +29,94 @@
 0
 --expect-stdout--
 0
+--comment--
+// version 1
+int main()
+{
+    int n;
+    scanf("%d", &n);
+
+    if (n == 0)
+    {
+        printf("0\n");
+        return 0;
+    }
+
+    int i = 2;
+    int f1 = 0;
+    int f2 = 1;
+
+    while (i <= n)
+    {
+        f2 += f1;
+        f1 = f2 - f1;
+        i += 1;
+    }
+    printf("%d\n", f2);
+
+    return 0;
+}
+
+// version 2
+int main()
+{
+    int m50; // n
+    scanf("%d", &m50);
+
+    if (m50 == 0)
+    {
+        printf("0\n");
+        return 0;
+    }
+
+    int m51 = 2; // i
+    int m52 = 0; // f1
+    int m53 = 1; // f2
+
+    while (0 <= m50 - m51)
+    {
+        m53 += m52;
+        m52 = m53 - m52;
+        m51 += 1;
+    }
+    printf("%d\n", m53);
+
+    return 0;
+}
+
+// version 3
+int main()
+{
+    int acc = 0;
+    int m50 = 0, m51 = 0, m52 = 0, m53 = 0;
+
+    scanf("%d", &m53);
+    acc = m53;
+    if (acc == 0)
+    {
+        goto output;
+    }
+    m50 = acc;
+
+    acc = 2; m51 = acc;
+    acc = 1; m53 = acc;
+
+loop:
+    // while (0 <= m50 - m51)
+    acc = m50; acc -= m51; if (acc < 0) goto output;
+    
+    // m53 += m52;
+    acc = m53; acc += m52; m53 = acc;
+
+    // m52 = m53 - m52;
+    acc = m53; acc -= m52; m52 = acc;
+
+    // m51 += 1;
+    acc = m51; acc += 1; m51 = acc;
+
+    goto loop;
+
+output:
+    printf("%d\n", m53);
+    return 0;
+}
