@@ -47,26 +47,6 @@ typedef struct word_input_result
     int value;
 } word_input_result_t;
 
-static const char *path_basename(const char *path)
-{
-    const char *slash = strrchr(path, '/');
-    const char *bs = strrchr(path, '\\');
-    const char *p = NULL;
-    if (slash && bs)
-    {
-        p = slash > bs ? slash : bs;
-    }
-    else if (slash)
-    {
-        p = slash;
-    }
-    else if (bs)
-    {
-        p = bs;
-    }
-    return p ? p + 1 : path;
-}
-
 static int wrap_accumulator_wide(long long acc)
 {
     long long span = WORD_SPAN;
@@ -297,7 +277,7 @@ int main(int argc, char **argv)
         }
         if (counter >= MEMORY_SIZE)
         {
-            fprintf(stderr, "Too many words in %s\n", path_basename(argv[1]));
+            fprintf(stderr, "Too many words in program\n");
             load_ok = 0;
             break;
         }
