@@ -133,7 +133,7 @@ int run(struct SIMPLETRON s)
         }
         else if (s.operationCode == OPERATOIN_ADD)
         {
-            s.accumulator += s.memory[s.operand] + 1;
+            s.accumulator += s.memory[s.operand];
         }
         else if (s.operationCode == OPERATION_SUBTRACT)
         {
