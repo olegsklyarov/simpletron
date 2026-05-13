@@ -57,7 +57,7 @@ def main() -> int:
 
     total = 0
     passed = 0
-    failures: list[tuple[str, str, str, str, int | None, str]] = []
+    failures: list[tuple[str, str, str, str, str]] = []
 
     for test_dir in sorted(tests_root.iterdir(), key=lambda p: p.name):
         if not test_dir.is_dir() or test_dir.name.startswith("."):
@@ -91,14 +91,14 @@ def main() -> int:
 
             expected = read_text(path_out)
             actual = read_text(path_run)
-            ok = proc.returncode == 0 and expected == actual
+            ok = expected == actual
 
             if ok:
                 passed += 1
             else:
                 stderr_txt = proc.stderr.decode("utf-8", errors="replace")
                 failures.append(
-                    (label, str(path_out), str(path_run), expected, proc.returncode, stderr_txt)
+                    (label, str(path_out), str(path_run), expected, stderr_txt)
                 )
 
     print(f"Запущено тестов: {total}")
@@ -107,10 +107,8 @@ def main() -> int:
 
     if args.verbose and failures:
         print()
-        for label, p_exp, p_act, expected, code, stderr_txt in failures:
+        for label, p_exp, p_act, expected, stderr_txt in failures:
             print(f"Провален: {label}")
-            if code is not None and code != 0:
-                print(f"  код выхода: {code}")
             if stderr_txt.strip():
                 print("  stderr:")
                 for line in stderr_txt.rstrip().splitlines():

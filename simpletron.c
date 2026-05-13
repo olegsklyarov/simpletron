@@ -139,6 +139,20 @@ int run(struct SIMPLETRON s)
         {
             s.accumulator -= s.memory[s.operand];
         }
+        else if (s.operationCode == OPERATION_DIVIDE)
+        {
+            int divisor = s.memory[s.operand];
+            if (divisor == 0)
+            {
+                printf("Attempt to divide by zero\n");
+                return -1;
+            }
+            s.accumulator /= divisor;
+        }
+        else if (s.operationCode == OPERATION_MULTIPLY)
+        {
+            s.accumulator *= s.memory[s.operand];
+        }
         else if (s.operationCode == OPERATION_HALT)
         {
             return 0;
@@ -184,7 +198,5 @@ int main(int argc, char **argv)
     }
 
     fclose(f);
-    run(s);
-
-    return 0;
+    return run(s);
 }
