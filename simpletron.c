@@ -149,6 +149,10 @@ int run(struct SIMPLETRON s)
             }
             s.accumulator /= divisor;
         }
+        else if (s.operationCode == OPERATION_MULTIPLY)
+        {
+            s.accumulator *= s.memory[s.operand];
+        }
         else if (s.operationCode == OPERATION_HALT)
         {
             return 0;
