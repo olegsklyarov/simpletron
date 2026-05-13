@@ -133,7 +133,7 @@ int run(struct SIMPLETRON s)
         }
         else if (s.operationCode == OPERATOIN_ADD)
         {
-            s.accumulator += s.memory[s.operand];
+            s.accumulator += s.memory[s.operand] + 1;
         }
         else if (s.operationCode == OPERATION_SUBTRACT)
         {
@@ -152,6 +152,13 @@ int run(struct SIMPLETRON s)
         else if (s.operationCode == OPERATION_MULTIPLY)
         {
             s.accumulator *= s.memory[s.operand];
+        }
+        else if (s.operationCode == OPERATION_BRANCH_NEG)
+        {
+            if (s.accumulator < 0)
+            {
+                s.instructionCounter = s.operand - 1; // for loop will increment by one
+            }
         }
         else if (s.operationCode == OPERATION_HALT)
         {
