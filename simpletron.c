@@ -10,6 +10,7 @@
 #define WORD_SPAN ((WORD_MAX) - (WORD_MIN) + 1)
 #define PROGRAM_END_SENTINEL (-99999)
 
+#define OPERATION_DATA 0
 #define OPERATION_READ 10
 #define OPERATION_WRITE 11
 #define OPERATION_LOAD 20
@@ -221,6 +222,10 @@ static int run(simpletron_t *s)
                 s->instructionCounter = operand - 1;
             }
         }
+        else if (operationCode == OPERATION_BRANCH)
+        {
+            s->instructionCounter = operand - 1;
+        }
         else if (operationCode == OPERATION_BRANCH_ZERO)
         {
             if (s->accumulator == 0)
@@ -231,6 +236,10 @@ static int run(simpletron_t *s)
         else if (operationCode == OPERATION_HALT)
         {
             return EXIT_SUCCESS;
+        }
+        else if (operationCode == OPERATION_DATA)
+        {
+            ;
         }
         else
         {

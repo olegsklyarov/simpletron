@@ -3,6 +3,7 @@
 Запускает тесты: все файлы *.stest под --tests-dir (рекурсивно).
 Каждый кейс — один файл в формате секций (как phpt): программа, stdin и ожидания.
 Файлы могут лежать прямо в tests/ (например divide-01.stest) или в подкаталогах.
+В любой строке допускается хвостовой комментарий: пробел/таб, затем # и до конца строки.
 
 Секция — строка --имя-- (строчные латинские буквы, цифры, дефисы), тело до
 следующей строки --...-- или EOF. Секция --program-- записывается во временный
@@ -22,9 +23,25 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-RUN_TIMEOUT_SEC = 5
+RUN_TIMEOUT_SEC = 1
 
 SECTION_HEADER = re.compile(r"^--([a-z0-9-]+)--\s*$")
+# Хвостовой комментарий: пробел/таб + # … до конца строки (не трогаем # в начале тела без пробела перед ним).
+STEST_LINE_COMMENT = re.compile(r"\s+#.*$")
+
+
+def strip_stest_line_comment(line: str) -> str:
+    """Убирает из строки stest хвостовой комментарий ` # ...` (тело строки сохраняется с переводом строки)."""
+    if line.endswith("\r\n"):
+        body, suffix = line[:-2], "\r\n"
+    elif line.endswith("\n"):
+        body, suffix = line[:-1], "\n"
+    elif line.endswith("\r"):
+        body, suffix = line[:-1], "\r"
+    else:
+        body, suffix = line, ""
+    body = STEST_LINE_COMMENT.sub("", body).rstrip(" \t")
+    return body + suffix
 
 
 @dataclass
@@ -50,6 +67,7 @@ def parse_sections(text: str) -> dict[str, str]:
     buf: list[str] = []
 
     for line in text.splitlines(keepends=True):
+        line = strip_stest_line_comment(line)
         bare = line.rstrip("\r\n")
         m = SECTION_HEADER.fullmatch(bare)
         if m is not None:
