@@ -3,7 +3,7 @@
 #include <errno.h>
 #include <limits.h>
 
-struct SIMULATOR
+struct SIMPLETRON
 {
     int memory[100];
 
@@ -15,7 +15,7 @@ struct SIMULATOR
     char operand;
 };
 
-void dump(struct SIMULATOR s)
+void dump(struct SIMPLETRON s)
 {
     printf("REGISTERS:\n");
     printf("accumulator           %+05d\n", s.accumulator);
@@ -101,6 +101,58 @@ int word_input()
     return ERROR_INPUT_OUT_OF_RANGE;
 }
 
+int run(struct SIMPLETRON s)
+{
+    for (; s.instructionCounter < 100; s.instructionCounter++)
+    {
+        s.instructionRegister = s.memory[s.instructionCounter];
+        s.operationCode = s.instructionRegister / 100;
+        s.operand = s.instructionRegister % 100;
+
+        if (s.operationCode == OPERATION_READ)
+        {
+
+            int word = word_input();
+            if (is_error_word(word))
+            {
+                printf("[%d] Error reading word, error code: %d\n", s.instructionCounter, word);
+                return -1;
+            }
+            s.memory[s.operand] = word;
+        }
+        else if (s.operationCode == OPERATION_WRITE)
+        {
+            printf("%+05d\n", s.memory[s.operand]);
+        }
+        else if (s.operationCode == OPERATION_LOAD)
+        {
+            s.accumulator = s.memory[s.operand];
+        }
+        else if (s.operationCode == OPERATION_STORE)
+        {
+            s.memory[s.operand] = s.accumulator;
+        }
+        else if (s.operationCode == OPERATOIN_ADD)
+        {
+            s.accumulator += s.memory[s.operand];
+        }
+        // else if (s.operationCode == OPERATION_SUBTRACT) {
+        //     s.accumulator -= s.memory[s.operand];
+        // }
+        else if (s.operationCode == OPERATION_HALT)
+        {
+            printf("*** Simpletron execution terminated ***\n");
+            return 0;
+        }
+        else
+        {
+            printf("[%d] Error: unknown operation code: %d\n", s.instructionCounter, s.operationCode);
+            return -1;
+        }
+    }
+    return -1000;
+}
+
 int main()
 {
     printf("*** Welcome to Simpletron! ***\n");
@@ -113,7 +165,7 @@ int main()
     printf("*** your program. ***\n");
     printf("\n");
 
-    struct SIMULATOR s = {};
+    struct SIMPLETRON s = {};
 
     // Load SML program into the memory
     int inputCounter = 0;
@@ -139,22 +191,9 @@ int main()
     printf("*** Program execution begins  ***\n");
     printf("\n");
 
+    run(s);
+
     // dump(s);
-
-    for (;;)
-    {
-        s.instructionRegister = s.memory[s.instructionCounter];
-        s.operationCode = s.instructionRegister / 100;
-        s.operand = s.instructionRegister % 100;
-
-        if (s.operationCode == OPERATION_HALT)
-        {
-            printf("*** Simpletron execution terminated ***\n");
-            break;
-        }
-
-        s.instructionCounter++;
-    }
 
     return 0;
 }
