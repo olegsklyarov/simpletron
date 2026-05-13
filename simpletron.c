@@ -65,11 +65,11 @@ int is_error_word(int word)
     return word <= ERROR_INPUT_STDIN;
 }
 
-int word_input()
+int word_input(FILE *f)
 {
     char buffer[10];
 
-    if (fgets(buffer, sizeof(buffer), stdin) == NULL)
+    if (fgets(buffer, sizeof(buffer), f) == NULL)
     {
         printf("\nword input failed");
         return ERROR_INPUT_STDIN;
@@ -111,8 +111,7 @@ int run(struct SIMPLETRON s)
 
         if (s.operationCode == OPERATION_READ)
         {
-
-            int word = word_input();
+            int word = word_input(stdin);
             if (is_error_word(word))
             {
                 printf("[%d] Error reading word, error code: %d\n", s.instructionCounter, word);
@@ -122,7 +121,7 @@ int run(struct SIMPLETRON s)
         }
         else if (s.operationCode == OPERATION_WRITE)
         {
-            printf("%+05d\n", s.memory[s.operand]);
+            printf("%d\n", s.memory[s.operand]);
         }
         else if (s.operationCode == OPERATION_LOAD)
         {
@@ -141,7 +140,6 @@ int run(struct SIMPLETRON s)
         // }
         else if (s.operationCode == OPERATION_HALT)
         {
-            printf("*** Simpletron execution terminated ***\n");
             return 0;
         }
         else
@@ -153,47 +151,39 @@ int run(struct SIMPLETRON s)
     return -1000;
 }
 
-int main()
+int main(int argc, char **argv)
 {
-    printf("*** Welcome to Simpletron! ***\n");
-    printf("\n");
-    printf("*** Please enter your program one instruction ***\n");
-    printf("*** (or data word) at a time. I will type the ***\n");
-    printf("*** location number and a question mark (?).  ***\n");
-    printf("*** You then type the word for that location. ***\n");
-    printf("*** Type the sentinel -99999 to stpo entering ***\n");
-    printf("*** your program. ***\n");
-    printf("\n");
-
+    if (argc != 2)
+    {
+        printf("Usage: ./simpletron src.txt\n");
+        return -1;
+    }
+    FILE *f = fopen(argv[1], "r");
+    if (f == NULL)
+    {
+        printf("Failed to open file %s\n", argv[1]);
+        return -1;
+    }
     struct SIMPLETRON s = {};
 
     // Load SML program into the memory
-    int inputCounter = 0;
-    int word = 0;
-    for (;;)
+    for (int word = 0, counter = 0;; counter++)
     {
-        printf("%02d ? ", inputCounter);
-        word = word_input();
+        word = word_input(f);
         if (is_error_word(word))
         {
             printf("invalid word, error code: %d\n", word);
-            continue;
+            break;
         }
         if (word == -99999)
         {
             break;
         }
-        s.memory[inputCounter++] = word;
+        s.memory[counter] = word;
     }
 
-    printf("\n");
-    printf("*** Program loading completed ***\n");
-    printf("*** Program execution begins  ***\n");
-    printf("\n");
-
+    fclose(f);
     run(s);
-
-    // dump(s);
 
     return 0;
 }
