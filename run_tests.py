@@ -1,27 +1,36 @@
 #!/usr/bin/env python3
 """
-Запускает тесты из подкаталогов tests/: для каждого каталога с src.txt
-выполняет кейсы 01..99 с парами NN.in / NN.out (и опционально NN.err, NN.exit).
-Кейс NN.expect_timeout: ожидается, что процесс не завершится за 5 с (таймаут).
+Запускает тесты: все файлы *.stest под --tests-dir (рекурсивно).
+Каждый кейс — один файл в формате секций (как phpt): программа, stdin и ожидания.
+
+Секция — строка --имя-- (строчные латинские буквы, цифры, дефисы), тело до
+следующей строки --...-- или EOF. Секция --program-- записывается во временный
+файл, его путь передаётся simpletron; после прогона файл удаляется.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
+import re
 import subprocess
 import sys
+import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 
 RUN_TIMEOUT_SEC = 5
 
+SECTION_HEADER = re.compile(r"^--([a-z0-9-]+)--\s*$")
+
 
 @dataclass
 class TestFailure:
     label: str
     reason: str
-    path_exp_out: Path | None = None
+    path_stest: Path | None = None
     path_act_out: Path | None = None
     path_exp_err: Path | None = None
     expected_out: bytes = b""
@@ -33,18 +42,67 @@ class TestFailure:
     stderr_txt: str = ""
 
 
-def read_bytes(path: Path) -> bytes:
-    return path.read_bytes()
+def parse_sections(text: str) -> dict[str, str]:
+    """Разбор секций: значения — строки как в файле (с переводами строк)."""
+    sections: dict[str, str] = {}
+    current: str | None = None
+    buf: list[str] = []
+
+    for line in text.splitlines(keepends=True):
+        bare = line.rstrip("\r\n")
+        m = SECTION_HEADER.fullmatch(bare)
+        if m is not None:
+            if current is not None:
+                sections[current] = "".join(buf)
+            current = m.group(1)
+            buf = []
+            continue
+        if current is None:
+            raise ValueError("содержимое до первой секции --имя-- недопустимо")
+        buf.append(line)
+
+    if current is None:
+        raise ValueError("нет ни одной секции")
+    sections[current] = "".join(buf)
+    return sections
 
 
-def read_exit_code(path: Path) -> int:
-    text = path.read_text(encoding="utf-8", errors="replace").strip()
-    return int(text)
+def load_stest(path: Path) -> dict[str, str]:
+    raw = path.read_text(encoding="utf-8")
+    return parse_sections(raw)
+
+
+def section_bytes(sections: dict[str, str], name: str) -> bytes:
+    return sections.get(name, "").encode("utf-8")
+
+
+def parse_expect_exit(sections: dict[str, str]) -> int:
+    if "expect-exit" not in sections:
+        return 0
+    t = sections["expect-exit"].strip()
+    if not t:
+        return 0
+    return int(t.splitlines()[0].strip(), 10)
+
+
+@contextmanager
+def program_as_temp_file(program: str):
+    """Записывает текст программы во временный файл и удаляет его после блока."""
+    fd, name = tempfile.mkstemp(prefix="simpletron_", suffix=".txt")
+    try:
+        os.write(fd, program.encode("utf-8"))
+    finally:
+        os.close(fd)
+    path = Path(name)
+    try:
+        yield path
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Тестирование simpletron по наборам в tests/<имя>/"
+        description="Тестирование simpletron по файлам *.stest (рекурсивно)"
     )
     parser.add_argument(
         "-v",
@@ -56,7 +114,7 @@ def main() -> int:
         "--tests-dir",
         type=Path,
         default=Path("tests"),
-        help="Корень с тестовыми каталогами (по умолчанию: tests)",
+        help="Корень с тестами (по умолчанию: tests); ищутся все *.stest ниже",
     )
     parser.add_argument(
         "--simpletron",
@@ -81,131 +139,163 @@ def main() -> int:
         print(f"Ошибка: каталог тестов не найден: {tests_root}", file=sys.stderr)
         return 2
 
+    stest_files = sorted(
+        tests_root.rglob("*.stest"),
+        key=lambda p: (str(p.parent), p.name),
+    )
+
     total = 0
     passed = 0
     failures: list[TestFailure] = []
 
-    for test_dir in sorted(tests_root.iterdir(), key=lambda p: p.name):
-        if not test_dir.is_dir() or test_dir.name.startswith("."):
+    for path_stest in stest_files:
+        if any(part.startswith(".") for part in path_stest.relative_to(tests_root).parts):
             continue
 
-        src = test_dir / "src.txt"
-        if not src.is_file():
-            continue
+        label = str(path_stest.relative_to(tests_root))
+        stem = path_stest.stem
+        test_dir = path_stest.parent
+        path_run = test_dir / f"{stem}.run"
+        path_run_err = test_dir / f"{stem}.run.err"
 
-        src_arg = str(src.resolve())
+        try:
+            sections = load_stest(path_stest)
+        except (ValueError, OSError, UnicodeDecodeError) as e:
+            print(f"Ошибка разбора {path_stest}: {e}", file=sys.stderr)
+            return 2
 
-        for n in range(1, 100):
-            nn = f"{n:02d}"
-            label = f"{test_dir.name}/{nn}"
+        if "program" not in sections:
+            print(
+                f"Ошибка: в {path_stest} нет секции --program--",
+                file=sys.stderr,
+            )
+            return 2
 
-            path_expect_timeout = test_dir / f"{nn}.expect_timeout"
-            path_in = test_dir / f"{nn}.in"
-            path_out = test_dir / f"{nn}.out"
-            path_err = test_dir / f"{nn}.err"
-            path_exit = test_dir / f"{nn}.exit"
-            path_run = test_dir / f"{nn}.run"
-            path_run_err = test_dir / f"{nn}.run.err"
+        if "stdin" not in sections:
+            print(
+                f"Ошибка: в {path_stest} нет секции --stdin--",
+                file=sys.stderr,
+            )
+            return 2
 
-            if path_expect_timeout.is_file():
-                if not path_in.is_file():
-                    continue
+        stdin_b = section_bytes(sections, "stdin")
+        expect_timeout = "expect-timeout" in sections
 
-                total += 1
-                try:
-                    with open(path_in, "rb") as fin, open(path_run, "wb") as fout_run:
+        if expect_timeout:
+            total += 1
+            try:
+                with program_as_temp_file(sections["program"]) as prog_path:
+                    try:
                         proc = subprocess.run(
-                            [str(simpletron), src_arg],
+                            [str(simpletron), str(prog_path.resolve())],
                             cwd=str(repo_root),
-                            stdin=fin,
-                            stdout=fout_run,
+                            stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
+                            input=stdin_b,
                             timeout=RUN_TIMEOUT_SEC,
                         )
-                except subprocess.TimeoutExpired:
-                    passed += 1
-                    continue
+                    except subprocess.TimeoutExpired:
+                        passed += 1
+                        continue
 
-                stderr_txt = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
-                failures.append(
-                    TestFailure(
-                        label=label,
-                        reason="ожидался таймаут (бесконечный цикл), процесс завершился",
-                        actual_code=proc.returncode,
-                        stderr_txt=stderr_txt,
+                    stderr_txt = (
+                        proc.stderr.decode("utf-8", errors="replace")
+                        if proc.stderr
+                        else ""
                     )
-                )
-                continue
+                    failures.append(
+                        TestFailure(
+                            label=label,
+                            reason="ожидался таймаут (бесконечный цикл), процесс завершился",
+                            path_stest=path_stest,
+                            actual_code=proc.returncode,
+                            stderr_txt=stderr_txt,
+                        )
+                    )
+            except OSError as e:
+                print(f"Ошибка временного файла для {path_stest}: {e}", file=sys.stderr)
+                return 2
+            continue
 
-            if not path_in.is_file() or not path_out.is_file():
-                continue
+        if "expect-stdout" not in sections:
+            print(
+                f"Ошибка: в {path_stest} нет секции --expect-stdout-- "
+                "(или добавьте --expect-timeout--)",
+                file=sys.stderr,
+            )
+            return 2
 
-            total += 1
-            expected_out = read_bytes(path_out)
-            expected_err = read_bytes(path_err) if path_err.is_file() else b""
-            expected_code = read_exit_code(path_exit) if path_exit.is_file() else 0
+        expected_out = section_bytes(sections, "expect-stdout")
+        expected_err = section_bytes(sections, "expect-stderr")
+        expected_code = parse_expect_exit(sections)
 
-            try:
-                with open(path_in, "rb") as fin, open(path_run, "wb") as fout_run:
+        total += 1
+        try:
+            with program_as_temp_file(sections["program"]) as prog_path:
+                try:
                     proc = subprocess.run(
-                        [str(simpletron), src_arg],
+                        [str(simpletron), str(prog_path.resolve())],
                         cwd=str(repo_root),
-                        stdin=fin,
-                        stdout=fout_run,
+                        stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
+                        input=stdin_b,
                         timeout=RUN_TIMEOUT_SEC,
                     )
-            except subprocess.TimeoutExpired:
-                failures.append(
-                    TestFailure(
-                        label=label,
-                        reason=f"таймаут {RUN_TIMEOUT_SEC} с",
-                        path_exp_out=path_out,
-                        path_act_out=path_run,
-                        path_exp_err=path_err if path_err.is_file() else None,
-                        expected_out=expected_out,
-                        expected_err=expected_err,
-                        expected_code=expected_code,
+                except subprocess.TimeoutExpired:
+                    failures.append(
+                        TestFailure(
+                            label=label,
+                            reason=f"таймаут {RUN_TIMEOUT_SEC} с",
+                            path_stest=path_stest,
+                            path_act_out=path_run,
+                            path_exp_err=path_stest if expected_err else None,
+                            expected_out=expected_out,
+                            expected_err=expected_err,
+                            expected_code=expected_code,
+                        )
                     )
-                )
-                continue
+                    continue
 
-            actual_out = read_bytes(path_run)
-            actual_err = proc.stderr if proc.stderr is not None else b""
-            path_run_err.write_bytes(actual_err)
+                actual_out = proc.stdout if proc.stdout is not None else b""
+                actual_err = proc.stderr if proc.stderr is not None else b""
+                path_run.write_bytes(actual_out)
+                path_run_err.write_bytes(actual_err)
 
-            ok_out = actual_out == expected_out
-            ok_err = actual_err == expected_err
-            ok_code = proc.returncode == expected_code
-            ok = ok_out and ok_err and ok_code
+                ok_out = actual_out == expected_out
+                ok_err = actual_err == expected_err
+                ok_code = proc.returncode == expected_code
+                ok = ok_out and ok_err and ok_code
 
-            if ok:
-                passed += 1
-            else:
-                parts: list[str] = []
-                if not ok_out:
-                    parts.append("stdout")
-                if not ok_err:
-                    parts.append("stderr")
-                if not ok_code:
-                    parts.append("код возврата")
-                reason = "несовпадение: " + ", ".join(parts)
-                failures.append(
-                    TestFailure(
-                        label=label,
-                        reason=reason,
-                        path_exp_out=path_out,
-                        path_act_out=path_run,
-                        path_exp_err=path_err if path_err.is_file() else None,
-                        expected_out=expected_out,
-                        actual_out=actual_out,
-                        expected_err=expected_err,
-                        actual_err=actual_err,
-                        expected_code=expected_code,
-                        actual_code=proc.returncode,
-                        stderr_txt=actual_err.decode("utf-8", errors="replace"),
+                if ok:
+                    passed += 1
+                else:
+                    parts: list[str] = []
+                    if not ok_out:
+                        parts.append("stdout")
+                    if not ok_err:
+                        parts.append("stderr")
+                    if not ok_code:
+                        parts.append("код возврата")
+                    reason = "несовпадение: " + ", ".join(parts)
+                    failures.append(
+                        TestFailure(
+                            label=label,
+                            reason=reason,
+                            path_stest=path_stest,
+                            path_act_out=path_run,
+                            path_exp_err=path_stest if expected_err else None,
+                            expected_out=expected_out,
+                            actual_out=actual_out,
+                            expected_err=expected_err,
+                            actual_err=actual_err,
+                            expected_code=expected_code,
+                            actual_code=proc.returncode,
+                            stderr_txt=actual_err.decode("utf-8", errors="replace"),
+                        )
                     )
-                )
+        except OSError as e:
+            print(f"Ошибка временного файла для {path_stest}: {e}", file=sys.stderr)
+            return 2
 
     print(f"Запущено тестов: {total}")
     print(f"Успешно: {passed}")
@@ -224,13 +314,13 @@ def main() -> int:
                     f"  код возврата: ожидалось {fobj.expected_code!r}, "
                     f"получено {fobj.actual_code!r}"
                 )
-            if fobj.path_exp_out is not None:
-                print(f"  stdout ожидаемо ({fobj.path_exp_out}):")
+            if fobj.path_act_out is not None:
+                print(f"  stdout ожидаемо (секция --expect-stdout-- в {fobj.path_stest}):")
                 _print_bytes_block(fobj.expected_out)
                 print(f"  stdout фактически ({fobj.path_act_out}):")
                 _print_bytes_block(fobj.actual_out)
-            if fobj.path_exp_err is not None or fobj.expected_err or fobj.actual_err:
-                print(f"  stderr ожидаемо ({fobj.path_exp_err}):")
+            if fobj.expected_err or fobj.actual_err:
+                print(f"  stderr ожидаемо (секция --expect-stderr-- в {fobj.path_stest}):")
                 _print_bytes_block(fobj.expected_err)
                 print("  stderr фактически (из pipe):")
                 _print_bytes_block(fobj.actual_err)
